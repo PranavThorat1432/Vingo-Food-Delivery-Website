@@ -5,12 +5,13 @@ const shopOrderItemSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Item',
     },
+    name: String,
     price: Number,
     quantity: Number,
 
 }, {timestamps: true});
 
-const shopOrderSchema = new monooose.Schema({
+const shopOrderSchema = new mongoose.Schema({
     shop: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Shop',
@@ -22,7 +23,33 @@ const shopOrderSchema = new monooose.Schema({
     subTotal: Number,
     shopOrderItems: [
         shopOrderItemSchema
-    ]
+    ],
+    deliveryStatus: {
+        type: String,
+        enum: ['Pending', 'Preparing', 'Out for Delivery', 'Delivered'],
+        default: 'Pending'
+    },
+    assignment: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'DeliveryAssignment',
+        default: null,
+    },
+    assignedDeliveryBoy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+    },
+    deliveryOtp: {
+        type: String,
+        default: null,
+    },
+    otpExpires: {
+        type: Date,
+        default: null,
+    },
+    deliveredAt: {
+        type: Date,
+        default: null,
+    }
 
 }, {timestamps: true});
 
@@ -46,9 +73,10 @@ const orderSchema = new mongoose.Schema({
     totalAmount: {
         type: Number,
     },
-    shopOrder: [
+    shopOrders: [
         shopOrderSchema
-    ]
+    ],
+    
 
 }, {timestamps: true});
 
