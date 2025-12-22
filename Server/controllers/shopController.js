@@ -23,7 +23,7 @@ export const createAndEditShop = async (req, res) => {
 
         // Create or update shop
         let shop = await Shop.findOne({ owner: req.userId });
-        
+
         try {
             if (!shop) {
                 // Create new shop
@@ -44,12 +44,12 @@ export const createAndEditShop = async (req, res) => {
                     address,
                     owner: req.userId
                 };
-                
+
                 // Only update image if a new one was uploaded
                 if (imageUrl) {
                     updateData.image = imageUrl;
                 }
-                
+
                 shop = await Shop.findByIdAndUpdate(
                     shop._id,
                     updateData,
@@ -59,17 +59,15 @@ export const createAndEditShop = async (req, res) => {
 
             await shop.populate('owner items');
 
-            return res.status(201).json({
-                success: true,
-                message: 'Shop saved successfully!',
-                shop
-            });
-            
+            // For consistency with other APIs and frontend expectations,
+            // return the shop document directly
+            return res.status(201).json(shop);
+
         } catch (dbError) {
             console.error('Database error:', dbError);
             return res.status(500).json({
                 success: false,
-                message: 'Error saving shop information'
+                message: `Error saving shop information: ${dbError.message}`
             });
         }
 
@@ -90,8 +88,10 @@ export const getMyShop = async (req, res) => {
             options: {sort: {updatedAt: -1}}
         });
         
-        if(!shop) {
-            return null;
+        // Always send a response so the client request doesn't hang
+        // If no shop exists yet, respond with null
+        if (!shop) {
+            return res.status(200).json(null);
         }
 
         return res.status(200).json(shop);
