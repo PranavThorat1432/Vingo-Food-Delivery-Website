@@ -43,6 +43,13 @@ const userSchema = new mongoose.Schema({
             type: [Number],  // [Longitude, Latitude]
             default: [0, 0],
         }
+    },
+    socketId: {
+        type: String,
+    },
+    isOnline: {
+        type: Boolean,
+        default: false
     }
 
 }, {timestamps: true});
