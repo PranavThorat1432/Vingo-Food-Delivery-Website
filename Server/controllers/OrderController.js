@@ -100,6 +100,27 @@ export const placeOrder = async (req, res) => {
         });
         await order.populate('shopOrders.shopOrderItems.item', 'name image price');
         await order.populate('shopOrders.shop', 'name');
+        await order.populate('shopOrders.owner', 'name');
+        await order.populate('user', 'name email mobileNo');
+
+        const io = req.app.get('io');
+
+        if(io) {
+            order.shopOrders.forEach(shopOrder => {
+                const ownerSocketId = shopOrder.owner.socketId;
+                if(ownerSocketId) {
+                    io.to(ownerSocketId).emit('newOrder', {
+                        _id: order._id,
+                        paymentMethod: order.paymentMethod,
+                        payment: order.payment,
+                        user: order.user,
+                        deliveryAddress: order.deliveryAddress,
+                        shopOrders: shopOrder,
+                        createdAt: order.createdAt
+                    })
+                }
+            });
+        }
 
         return res.status(201).json({
             message: 'Order Placed Successfully!',
