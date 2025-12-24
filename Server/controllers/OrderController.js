@@ -3,15 +3,7 @@ import Order from "../models/OrderModel.js";
 import Shop from "../models/ShopModel.js";
 import User from "../models/UserModel.js";
 import { sendDeliveryOtpMail } from "../utils/mail.js";
-import Razorpay from 'razorpay';
-import dotenv from 'dotenv';
-dotenv.config();
 
-
-let instance = new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID,
-    key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
 
 export const placeOrder = async (req, res) => {
     try {
@@ -66,31 +58,6 @@ export const placeOrder = async (req, res) => {
             }
         }));
 
-        // Condition for Online Payment
-        if(paymentMethod === 'Online') {
-            const razorOrder = await instance.orders.create({
-                amount: Math.round(totalAmount * 100),
-                currency: 'INR',
-                receipt: `receipt_${Date.now()}`
-            });
-
-            const order = await Order.create({
-                user: req.userId,
-                paymentMethod,
-                deliveryAddress,
-                totalAmount,
-                shopOrders,
-                razorpayOrderId: razorOrder.id,
-                payment: false
-            });
-
-
-            return res.status(200).json({
-                razorOrder,
-                orderId: order._id,
-            });
-        }
-
         const order = await Order.create({
             user: req.userId,
             paymentMethod,
@@ -100,33 +67,11 @@ export const placeOrder = async (req, res) => {
         });
         await order.populate('shopOrders.shopOrderItems.item', 'name image price');
         await order.populate('shopOrders.shop', 'name');
-        await order.populate('shopOrders.owner', 'name');
-        await order.populate('user', 'name email mobileNo');
-
-        const io = req.app.get('io');
-
-        if(io) {
-            order.shopOrders.forEach(shopOrder => {
-                const ownerSocketId = shopOrder.owner.socketId;
-                if(ownerSocketId) {
-                    io.to(ownerSocketId).emit('newOrder', {
-                        _id: order._id,
-                        paymentMethod: order.paymentMethod,
-                        payment: order.payment,
-                        user: order.user,
-                        deliveryAddress: order.deliveryAddress,
-                        shopOrders: shopOrder,
-                        createdAt: order.createdAt
-                    })
-                }
-            });
-        }
 
         return res.status(201).json({
             message: 'Order Placed Successfully!',
             order
         });
-
 
     } catch (error) {
         return res.status(500).json({
@@ -136,40 +81,6 @@ export const placeOrder = async (req, res) => {
     }
 };
 
-
-export const verifyPayment = async (req, res) => {
-    try {
-        const {razorpay_payment_id, orderId} = req.body;
-        const payment = await instance.payments.fetch(razorpay_payment_id);
-        if(!payment || payment.status !== 'captured') {
-            return res.status(400).json({
-                message: 'Payment not captured!'
-            });
-        }
-
-        const order = await Order.findById(orderId);
-        if(!order) {
-            return res.status(400).json({
-                message: 'Order not found!!'
-            });
-        }
-
-        order.payment = true;
-        order.razorpayPaymentId = razorpay_payment_id;
-        await order.save();
-
-        await order.populate('shopOrders.shopOrderItems.item', 'name image price');
-        await order.populate('shopOrders.shop', 'name');
-
-        return res.status(200).json(order);
-        
-    } catch (error) {
-        return res.status(500).json({
-            success: false,
-            message: `Verify Payment Error: ${error.message}`
-        });
-    }
-};
 
 export const getMyOrders = async (req, res) => {
     try {
@@ -194,7 +105,6 @@ export const getMyOrders = async (req, res) => {
             const filteredOrders = orders.map((order) => ({
                 _id: order._id,
                 paymentMethod: order.paymentMethod,
-                payment: order.payment,
                 user: order.user,
                 deliveryAddress: order.deliveryAddress,
                 shopOrders: order.shopOrders.find(o => o.owner._id == req.userId),
@@ -660,8 +570,6 @@ export const verifyDeliveryOTP = async (req, res) => {
     try {
         const {orderId, shopOrderId, otp} = req.body;
         
-        console.log('[DEBUG] verifyDeliveryOTP called with:', {orderId, shopOrderId, otp});
-        
         if(!orderId || !shopOrderId || !otp) {
             return res.status(400).json({
                 success: false,
@@ -671,7 +579,6 @@ export const verifyDeliveryOTP = async (req, res) => {
 
         const order = await Order.findById(orderId).populate('user');
         if(!order) {
-            console.log('[DEBUG] Order not found:', orderId);
             return res.status(404).json({
                 success: false,
                 message: 'OrderId not found!'
@@ -680,19 +587,11 @@ export const verifyDeliveryOTP = async (req, res) => {
 
         const shopOrder = order.shopOrders.id(shopOrderId);
         if(!shopOrder) {
-            console.log('[DEBUG] ShopOrder not found:', shopOrderId);
             return res.status(404).json({
                 success: false,
                 message: 'ShopOrderId not found!'
             });
         }
-
-        console.log('[DEBUG] ShopOrder found. OTP check:', {
-            storedOtp: shopOrder.deliveryOtp,
-            providedOtp: otp,
-            otpExpires: shopOrder.otpExpires,
-            isExpired: shopOrder.otpExpires ? shopOrder.otpExpires < Date.now() : 'no expiry set'
-        });
 
         if(shopOrder.deliveryOtp !== otp || !shopOrder.otpExpires || shopOrder.otpExpires < Date.now()) {
             return res.status(400).json({
@@ -703,13 +602,10 @@ export const verifyDeliveryOTP = async (req, res) => {
 
         // Fix: Use deliveryStatus instead of status
         shopOrder.deliveryStatus = 'Delivered';
-        shopOrder.deliveredAt = new Date();
+        shopOrder.deliveredAt = Date.now();
 
-        // Mark the shopOrders array as modified
-        order.markModified('shopOrders');
         await order.save();
 
-        console.log('[DEBUG] Order saved with Delivered status');
 
         await DeliveryAssignment.deleteOne({
             shopOrderId: shopOrder._id,
@@ -717,15 +613,12 @@ export const verifyDeliveryOTP = async (req, res) => {
             assignedTo: shopOrder.assignedDeliveryBoy,
         });
 
-        console.log('[DEBUG] DeliveryAssignment deleted');
-
         return res.status(200).json({
             success: true,
             message: 'Order Delivered!'
         });
 
     } catch (error) {
-        console.error('[DEBUG] verifyDeliveryOTP error:', error);
         return res.status(500).json({
             success: false,
             message: `Verify-Delivery-OTP Error: ${error.message}`
