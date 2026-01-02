@@ -22,4 +22,4 @@ export const categories = [
     { "category": "Chinese", "image": image9 },
     { "category": "Fast Food", "image": image10 },
     { "category": "All", "image": image11 },
-]
+] 
